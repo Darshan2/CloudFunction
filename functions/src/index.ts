@@ -10,6 +10,7 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
             const profilePic = docData.user.profilePic;
             const userId = docData.user.userId;
             const reporterId = docData.reporterId;
+            const subReporterIds = docData.subReporterIds;
 
             const commentId = docData.id;
             const parentId = docData.parentId;  
@@ -59,6 +60,7 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                                 "time" : `${commentedTime.toMillis()}`,
         
                                 "reporterId" : `${reporterId}`,
+                                "subReporterIds" : `${subReporterIds}`,
                                 "userId" : `${userId}`,
                                 "userName": `${userName}`,
                                 "profilePic": `${profilePic}`, 
@@ -134,6 +136,7 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                                     "time" : `${commentedTime.toMillis()}`,
             
                                     "reporterId" : `${reporterId}`,
+                                    "subReporterIds" : `${subReporterIds}`,
                                     "userId" : `${userId}`,
                                     "userName": `${userName}`,
                                     "profilePic": `${profilePic}`, 
@@ -184,18 +187,32 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
 
             const commentedTime = docData.createdTime;
             const directComment = docData.directComment;
+            
+            const userDocRef = admin.firestore().doc(`users/${userId}`);
 
             try {
                 if(directComment) {
                     //Registration tokens are stored in users collection
-                    const userInfoDoc = await admin.firestore().doc(`users/${userId}`).get();
+                    const userInfoDoc = await userDocRef.get();
                     const userInfoData = userInfoDoc.data();
 
                     if(userInfoData)  {
                         const registrationToken = userInfoData.registrationToken;
-                        console.log("registrationToken: " + registrationToken);
                         //Suscribe to topic with name postId if its a direct comment
                         if(registrationToken) await admin.messaging().subscribeToTopic(registrationToken, postId);
+                       
+                         //If topics list exist add newly created topic to it, else create topics list
+                         let toicsCreateOrUpdatePromise;
+                         if(userInfoData.topics) {
+                             toicsCreateOrUpdatePromise = userDocRef.update({
+                                 topics: admin.firestore.FieldValue.arrayUnion(postId)
+                             });
+                         } else{
+                             toicsCreateOrUpdatePromise = userDocRef.set({
+                                 topics : [postId]
+                             }, {merge: true});
+                         }
+                       
                         const payload = {
                             "data":{
                                 "postId" : `${postId}`,
@@ -214,8 +231,9 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                                 "isCommentNotification" : "true"
                             }
                         }
-                        console.log("payload sent successfully");
-                        return admin.messaging().sendToTopic(postId, payload);
+                       
+                        const notificationPromise = admin.messaging().sendToTopic(postId, payload);
+                        return Promise.all([toicsCreateOrUpdatePromise, notificationPromise]);
 
                     } else {
                         return null;
@@ -231,11 +249,12 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                         //topic with name parentCommentId
                         const parentCommentId = parentDocData.id;
                         const parentUserId = parentDocData.user.userId; 
+                        const parentUserDocRef = admin.firestore().doc(`users/${parentUserId}`);
 
-                        const parentUserInfoDoc = await admin.firestore().doc(`users/${parentUserId}`).get();
+                        const parentUserInfoDoc = await parentUserDocRef.get();
                         const parentUserInfoData = parentUserInfoDoc.data();
 
-                        const userInfoDoc = await admin.firestore().doc(`users/${userId}`).get();
+                        const userInfoDoc = await userDocRef.get();
                         const userInfoData = userInfoDoc.data();
 
                         if(parentUserInfoData && userInfoData) {
@@ -245,7 +264,30 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                             
                             await admin.messaging().subscribeToTopic(registrationTokens, parentCommentId);
 
-                            console.log("isDirectComment: " + directComment + " parentRegistationToken: " + registrationTokens + " parentId: " + parentId)
+                            let userTopicsCreateOrUpdatePromise;
+                            let parentuserTopicsCreateOrUpdatePromise;
+
+                            //Store the subscribed topic info in user documents
+                            if(userInfoData.topics) {
+                                userTopicsCreateOrUpdatePromise = userDocRef.update({
+                                    topics: admin.firestore.FieldValue.arrayUnion(parentCommentId)
+                                });
+                            } else{
+                                userTopicsCreateOrUpdatePromise = userDocRef.set({
+                                    topics : [parentCommentId]
+                                }, {merge: true});
+                            }
+
+                            if(parentUserInfoData.topics) {
+                                parentuserTopicsCreateOrUpdatePromise = parentUserDocRef.update({
+                                    topics: admin.firestore.FieldValue.arrayUnion(parentCommentId)
+                                });
+                            } else{
+                                parentuserTopicsCreateOrUpdatePromise = parentUserDocRef.set({
+                                    topics : [parentCommentId]
+                                }, {merge: true});
+                            }
+
                             const replyPayload = {
                                 "data":{
                                     "postId" : `${postId}`,
@@ -264,8 +306,9 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                                     "isCommentNotification" : "true"
                                 }
                             };
-                            return admin.messaging().sendToTopic(parentCommentId, replyPayload);
-
+                           
+                            const notificationPromise = admin.messaging().sendToTopic(parentCommentId, replyPayload);
+                            return Promise.all([userTopicsCreateOrUpdatePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise])
                         } else {
                             return null;
                         }

@@ -1,10 +1,15 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import axios, { AxiosResponse } from "axios";
+
 admin.initializeApp();
 
 export const addCommentToPostTest = functions.firestore.document(`posts_test/{postId}/comments/{commentId}`)
     .onCreate(async (snapshot, context) => {
         const docData = snapshot.data();
+        const maxTopicsCount = 3;
+        const numTopicsToUnsbscribe = 2;
+
         if(docData) {
             const userName = docData.user.userName;
             const profilePic = docData.user.profilePic;
@@ -23,7 +28,7 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
             const commentedTime = docData.createdTime;
             const directComment = docData.directComment;
 
-            const userDocRef = admin.firestore().doc(`users/${userId}`);
+            const userDocRef = admin.firestore().doc(`users_test/${userId}`);
 
             try {
                 if(directComment) {
@@ -33,6 +38,13 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
 
                     if(userInfoData)  {
                         const registrationToken = userInfoData.registrationToken;
+                        const userTopics : string[] = userInfoData.topics;
+
+                        if(userTopics && userTopics.length > maxTopicsCount) {
+                            const unsubscribeTopics : string[] = userTopics.slice(0, numTopicsToUnsbscribe);
+                            await unsubscribeTopicsFromUser(true, userDocRef, userInfoData, unsubscribeTopics);
+                        }
+                        
                         //Suscribe to topic with name postId if its a direct comment
                         if(registrationToken) await admin.messaging().subscribeToTopic(registrationToken, postId);
                         
@@ -81,11 +93,11 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                     const parentDocData = parentComment.data();
 
                     if(parentDocData) {
-                        //Get registration token of commented user and parent comment user and subscribe to them
+                        //Get registration token of commented user and parent comment user and subscribe them to
                         //topic with name parentCommentId
                         const parentCommentId = parentDocData.id;
                         const parentUserId = parentDocData.user.userId; 
-                        const parentUserDocRef = admin.firestore().doc(`users/${parentUserId}`);
+                        const parentUserDocRef = admin.firestore().doc(`users_test/${parentUserId}`);
                 
                         const parentUserInfoDoc = await parentUserDocRef.get();
                         const parentUserInfoData = parentUserInfoDoc.data();
@@ -97,7 +109,21 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                             const userRegToken = userInfoData.registrationToken;
                             const parentUserRegToken = parentUserInfoData.registrationToken;
                             const registrationTokens: string[] = [userRegToken, parentUserRegToken];
-                            
+
+                            const userTopics : string[] = userInfoData.topics;
+                            const parentUserTopics : string[] = parentUserInfoData.topics;
+
+                            //Unsubscribe user from topics if user registerred to more than allowed topics limit
+                            if(userTopics && userTopics.length > maxTopicsCount) {
+                                const unsubscribeTopics : string[] = userTopics.slice(0, numTopicsToUnsbscribe);
+                                await unsubscribeTopicsFromUser(true, userDocRef, userInfoData, unsubscribeTopics);
+                            }
+
+                            if(parentUserTopics && parentUserTopics.length > maxTopicsCount) {
+                                const unsubscribeTopics : string[] = parentUserTopics.slice(0, numTopicsToUnsbscribe);
+                                await unsubscribeTopicsFromUser(true, parentUserDocRef, parentUserInfoData, unsubscribeTopics);
+                            }
+
                             await admin.messaging().subscribeToTopic(registrationTokens, parentCommentId);
 
                             let userTopicsCreateOrUpdatePromise;
@@ -171,11 +197,15 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
 export const addCommentToPost = functions.firestore.document(`posts/{postId}/comments/{commentId}`)
     .onCreate(async (snapshot, context) => {
         const docData = snapshot.data();
+        const maxTopicsCount = 1500;
+        const numTopicsToUnsbscribe = 30;
+
         if(docData) {
             const userName = docData.user.userName;
             const profilePic = docData.user.profilePic;
             const userId = docData.user.userId;
             const reporterId = docData.reporterId;
+            const subReporterIds = docData.subReporterIds;
 
             const commentId = docData.id;
             const parentId = docData.parentId;  
@@ -198,6 +228,13 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
 
                     if(userInfoData)  {
                         const registrationToken = userInfoData.registrationToken;
+                        const userTopics : string[] = userInfoData.topics;
+
+                        if(userTopics && userTopics.length > maxTopicsCount) {
+                            const unsubscribeTopics : string[] = userTopics.slice(0, numTopicsToUnsbscribe);
+                            await unsubscribeTopicsFromUser(false, userDocRef, userInfoData, unsubscribeTopics);
+                        }
+
                         //Suscribe to topic with name postId if its a direct comment
                         if(registrationToken) await admin.messaging().subscribeToTopic(registrationToken, postId);
                        
@@ -225,6 +262,7 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                                 "time" : `${commentedTime.toMillis()}`,
         
                                 "reporterId" : `${reporterId}`,
+                                "subReporterIds" : `${subReporterIds}`,
                                 "userId" : `${userId}`,
                                 "userName": `${userName}`,
                                 "profilePic": `${profilePic}`, 
@@ -262,6 +300,20 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                             const parentUserRegToken = parentUserInfoData.registrationToken;
                             const registrationTokens: string[] = [userRegToken, parentUserRegToken];
                             
+                            const userTopics : string[] = userInfoData.topics;
+                            const parentUserTopics : string[] = parentUserInfoData.topics;
+
+                            //Unsubscribe user from topics if user registerred to more than allowed topics limit
+                            if(userTopics && userTopics.length > maxTopicsCount) {
+                                const unsubscribeTopics : string[] = userTopics.slice(0, numTopicsToUnsbscribe);
+                                await unsubscribeTopicsFromUser(false, userDocRef, userInfoData, unsubscribeTopics);
+                            }
+
+                            if(parentUserTopics && parentUserTopics.length > maxTopicsCount) {
+                                const unsubscribeTopics : string[] = parentUserTopics.slice(0, numTopicsToUnsbscribe);
+                                await unsubscribeTopicsFromUser(false, parentUserDocRef, parentUserInfoData, unsubscribeTopics);
+                            }
+
                             await admin.messaging().subscribeToTopic(registrationTokens, parentCommentId);
 
                             let userTopicsCreateOrUpdatePromise;
@@ -300,6 +352,7 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                                     "time" : `${commentedTime.toMillis()}`,
             
                                     "reporterId" : `${reporterId}`,
+                                    "subReporterIds" : `${subReporterIds}`,
                                     "userId" : `${userId}`,
                                     "userName": `${userName}`,
                                     "profilePic": `${profilePic}`, 
@@ -328,7 +381,35 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
        
     }); 
 
+    async function unsubscribeTopicsFromUser(isTest: boolean, userDocRef:any, userInfoData:any, topicslist: string[]) {
+        const respons : AxiosResponse =  await callLokalApiToUnsubscribe(true, userInfoData, topicslist);
+        if(respons.status === 200)  {
+            return userDocRef.update({
+                topics: admin.firestore.FieldValue.arrayRemove(...topicslist)
+            });
+        } else{
+              return null;
+        }  
+    }
 
+    async function callLokalApiToUnsubscribe(isTest:boolean, userInfoData:any, topicslist: string[]) {
+        const registrationToken = userInfoData.registrationToken;
+        const authToken = "Token 1993c1513dacc28224ad9cb8d7e8bcbd89030b8f"
+        const apiEndPoint:string = isTest ? 'http://testapi.getlokalapp.com/users/unsubscribe_topics/' : 'http://api.getlokalapp.com/users/unsubscribe_topics/';
+
+        return axios({
+                method: 'post',
+                url: apiEndPoint,
+                data: {
+                    token : registrationToken,
+                    topics: topicslist
+                },
+                headers: {
+                    Authorization: authToken
+                }
+            })
+    }
+   
 export const onReportCommentCreated = functions.firestore.document(`reported/{commentId}`)
     .onCreate(async (snapshot, context) => {
         return handleUserBlocking(snapshot.data())
@@ -347,6 +428,12 @@ async function handleUserBlocking(dataSnapshot:any) {
         const profilePic = dataSnapshot.user.profilePic;
         const userName = dataSnapshot.user.userName;
         const numReports : number  = Number(dataSnapshot.numReports);
+        //aditya - start - 1/06/2020
+        const blockReasonId : number = Number(-1);
+        const blockReason = "User has more than 10 reports";
+        const defaultBlockReasonId : number = Number(0);
+        const defaultBlockReason = "";
+        //aditya - end
 
         //Check to see if the author of reported comment exists in 'users' collection
         const userInfoDoc = await admin.firestore().doc(`users/${userId}`).get();
@@ -361,7 +448,11 @@ async function handleUserBlocking(dataSnapshot:any) {
                 const promise1 = admin.firestore().doc(`users/${userId}`).set({
                     "numReports" : numNewReports,
                     "blocked" : true,
-                    "blockedTime" : admin.firestore.FieldValue.serverTimestamp()
+                    "blockedTime" : admin.firestore.FieldValue.serverTimestamp(),
+                    //aditya - start - 1/06/2020
+                    "blockReasonId" : blockReasonId,
+                    "blockReason" : `${blockReason}`
+                    //aditya - end
                 }, {merge: true});
 
                 const promise2 = admin.firestore().doc(`blocked_users/${userId}`).set({
@@ -372,7 +463,11 @@ async function handleUserBlocking(dataSnapshot:any) {
                     "superUser" : false,
                     "blocked" : true,                    
                     "registrationToken" : "",
-                    "blockedTime" : admin.firestore.FieldValue.serverTimestamp()
+                    "blockedTime" : admin.firestore.FieldValue.serverTimestamp(),
+                    //aditya - start - 1/06/2020
+                    "blockReasonId" : blockReasonId,
+                    "blockReason" : `${blockReason}`
+                    //aditya - end
                 });
 
                 return Promise.all([promise1, promise2]);
@@ -390,6 +485,97 @@ async function handleUserBlocking(dataSnapshot:any) {
                 "blocked" : false,
                 "superUser" : false,
                 "registrationToken" : "",
+                //aditya - start - 1/06/2020
+                "blockReasonId" : defaultBlockReasonId,
+                "blockReason" : `${defaultBlockReason}`
+                //aditya - end
+            });
+        }
+        
+    } else {
+        return null;
+    }
+}
+
+export const onReportCommentTestCreated = functions.firestore.document(`reported_test/{commentId}`)
+    .onCreate(async (snapshot, context) => {
+        return handleUserBlockingTest(snapshot.data())
+    }); 
+
+export const onReportCommentTestUpdated = functions.firestore.document(`reported_test/{commentId}`)
+    .onUpdate(async (change, context) => {
+        return handleUserBlockingTest(change.before.data())
+    }); 
+
+async function handleUserBlockingTest(dataSnapshot:any) {
+    const maxAllowedreports = 10;
+
+    if(dataSnapshot) {
+        const userId : number = Number(dataSnapshot.user.userId);
+        const profilePic = dataSnapshot.user.profilePic;
+        const userName = dataSnapshot.user.userName;
+        const numReports : number  = Number(dataSnapshot.numReports);
+        //aditya - start - 1/06/2020
+        const blockReasonId : number = Number(-1);
+        const blockReason = "User has more than 10 reports";
+        const defaultBlockReasonId : number = Number(0);
+        const defaultBlockReason = "";
+        //aditya - end
+
+        //Check to see if the author of reported comment exists in 'users_test' collection
+        const userInfoDoc = await admin.firestore().doc(`users_test/${userId}`).get();
+        const userInfoData = userInfoDoc.data();
+
+        if(userInfoDoc.exists && userInfoData) {
+            const numOldReports : number = Number(userInfoData.numReports);
+            const numNewReports : number = numOldReports + 1;
+
+            if(numOldReports >= maxAllowedreports - 1) {
+             //If numReports for a users reaches maximum value block that user, and add user document under blocked_users collection
+                const promise1 = admin.firestore().doc(`users_test/${userId}`).set({
+                    "numReports" : numNewReports,
+                    "blocked" : true,
+                    "blockedTime" : admin.firestore.FieldValue.serverTimestamp(),
+                    //aditya - start - 1/06/2020
+                    "blockReasonId" : blockReasonId,
+                    "blockReason" : `${blockReason}`
+                    //aditya - end
+                }, {merge: true});
+
+                const promise2 = admin.firestore().doc(`blocked_users_test/${userId}`).set({
+                    "userId" : userId,
+                    "profilePic" :  `${profilePic}`,
+                    "userName" :  `${userName}`,
+                    "numReports" : numNewReports,
+                    "superUser" : false,
+                    "blocked" : true,                    
+                    "registrationToken" : "",
+                    "blockedTime" : admin.firestore.FieldValue.serverTimestamp(),
+                    //aditya - start - 1/06/2020
+                    "blockReasonId" : blockReasonId,
+                    "blockReason" : `${blockReason}`
+                    //aditya - end
+                });
+
+                return Promise.all([promise1, promise2]);
+
+            } else {
+                return admin.firestore().doc(`users_test/${userId}`).update({"numReports": numNewReports});
+            }
+
+        } else{
+            return admin.firestore().doc(`users_test/${userId}`).set( {
+                "userId" : userId,
+                "profilePic" :  `${profilePic}`,
+                "userName" :  `${userName}`,
+                "numReports" : numReports,
+                "blocked" : false,
+                "superUser" : false,
+                "registrationToken" : "",
+                //aditya - start - 1/06/2020
+                "blockReasonId" : defaultBlockReasonId,
+                "blockReason" : `${defaultBlockReason}`
+                //aditya - end
             });
         }
         

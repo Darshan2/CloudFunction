@@ -11,7 +11,7 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
         const numTopicsToUnsbscribe = 2;
 
         if(docData) {
-            const userName = docData.user.userName;
+            const userName : string = docData.user.userName;
             const profilePic = docData.user.profilePic;
             const userId = docData.user.userId;
             const reporterId = docData.reporterId;
@@ -49,13 +49,13 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                         if(registrationToken) await admin.messaging().subscribeToTopic(registrationToken, postId);
                         
                         //If topics list exist add newly created topic to it, else create topics list
-                        let toicsCreateOrUpdatePromise;
+                        let topicsCreateOrUpdatePromise;
                         if(userInfoData.topics) {
-                            toicsCreateOrUpdatePromise = userDocRef.update({
+                            topicsCreateOrUpdatePromise = userDocRef.update({
                                 topics: admin.firestore.FieldValue.arrayUnion(postId)
                             });
                         } else{
-                            toicsCreateOrUpdatePromise = userDocRef.set({
+                            topicsCreateOrUpdatePromise = userDocRef.set({
                                 topics : [postId]
                             }, {merge: true});
                         }
@@ -79,9 +79,23 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                                 "isCommentNotification" : "true"
                             }
                         }
-
+                        
                         const notificationPromise = admin.messaging().sendToTopic(postId, payload);
-                        return Promise.all([toicsCreateOrUpdatePromise, notificationPromise]);
+                    
+                        if(userName !== null) {
+                            const splits : string[] = userName.split("\n");
+                            if(splits.length > 1) {
+                                const removeNewLinePromise = snapshot.ref.set({
+                                    "user" : {
+                                        "userName" : splits[0]
+                                    }
+                                  }, {merge:true});
+                                  
+                                return Promise.all([removeNewLinePromise, topicsCreateOrUpdatePromise, notificationPromise]);
+                            }
+                        }
+                    
+                        return Promise.all([topicsCreateOrUpdatePromise, notificationPromise]);
 
                     } else {
                         return null;
@@ -171,6 +185,20 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                             };
 
                             const notificationPromise = admin.messaging().sendToTopic(parentCommentId, replyPayload);
+                            
+                            if(userName !== null) {
+                                const splits : string[] = userName.split("\n");
+                                if(splits.length > 1) {
+                                    const removeNewLinePromise = snapshot.ref.set({
+                                        "user" : {
+                                            "userName" : splits[0]
+                                        }
+                                      }, {merge:true});
+                                      
+                                    return Promise.all([removeNewLinePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise]);
+                                }
+                            }
+                        
                             return Promise.all([userTopicsCreateOrUpdatePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise])
 
                         } else {
@@ -271,6 +299,20 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                         }
                        
                         const notificationPromise = admin.messaging().sendToTopic(postId, payload);
+                        
+                        if(userName !== null) {
+                            const splits : string[] = userName.split("\n");
+                            if(splits.length > 1) {
+                                const removeNewLinePromise = snapshot.ref.set({
+                                    "user" : {
+                                        "userName" : splits[0]
+                                    }
+                                  }, {merge:true});
+                                  
+                                return Promise.all([removeNewLinePromise, toicsCreateOrUpdatePromise, notificationPromise]);
+                            }
+                        }
+
                         return Promise.all([toicsCreateOrUpdatePromise, notificationPromise]);
 
                     } else {
@@ -361,6 +403,20 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
                             };
                            
                             const notificationPromise = admin.messaging().sendToTopic(parentCommentId, replyPayload);
+                           
+                            if(userName !== null) {
+                                const splits : string[] = userName.split("\n");
+                                if(splits.length > 1) {
+                                    const removeNewLinePromise = snapshot.ref.set({
+                                        "user" : {
+                                            "userName" : splits[0]
+                                        }
+                                      }, {merge:true});
+                                      
+                                    return Promise.all([removeNewLinePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise]);
+                                }
+                            }
+                           
                             return Promise.all([userTopicsCreateOrUpdatePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise])
                         } else {
                             return null;

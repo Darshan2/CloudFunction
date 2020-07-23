@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import axios, { AxiosResponse } from "axios";
+// const FormData = require('form-data');
 
 admin.initializeApp();
 
@@ -29,8 +30,11 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
             const directComment = docData.directComment;
 
             const userDocRef = admin.firestore().doc(`users_test/${userId}`);
+            console.log("Calling callSpamCheck")
+            
 
             try {
+                const spamPromise =  callSpamCheck(commentId, postId);
                 if(directComment) {
                     //Registration tokens are stored in users collection
                     const userInfoDoc = await userDocRef.get();
@@ -91,11 +95,17 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                                     }
                                   }, {merge:true});
                                   
-                                return Promise.all([removeNewLinePromise, topicsCreateOrUpdatePromise, notificationPromise]);
+                                return Promise.all([removeNewLinePromise, topicsCreateOrUpdatePromise, notificationPromise, spamPromise])
+                                        .then(() => {
+                                            return true 
+                                        });
                             }
                         }
                     
-                        return Promise.all([topicsCreateOrUpdatePromise, notificationPromise]);
+                        return Promise.all([topicsCreateOrUpdatePromise, notificationPromise, spamPromise])
+                                    .then(() => {
+                                        return true 
+                                    });
 
                     } else {
                         return null;
@@ -195,11 +205,11 @@ export const addCommentToPostTest = functions.firestore.document(`posts_test/{po
                                         }
                                       }, {merge:true});
                                       
-                                    return Promise.all([removeNewLinePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise]);
+                                    return Promise.all([removeNewLinePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise, spamPromise]);
                                 }
                             }
                         
-                            return Promise.all([userTopicsCreateOrUpdatePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise])
+                            return Promise.all([userTopicsCreateOrUpdatePromise, parentuserTopicsCreateOrUpdatePromise, notificationPromise, spamPromise])
 
                         } else {
                             return null;
@@ -437,6 +447,19 @@ export const addCommentToPost = functions.firestore.document(`posts/{postId}/com
        
     }); 
 
+    async function callSpamCheck(commentId:string, postId:any) {
+        console.log("Inside callSpamCheck change method");
+       const apiEndPoint:string = 'http://ec2-15-206-72-255.ap-south-1.compute.amazonaws.com/addcomment/'
+       return axios({
+                method: 'post',
+                url: apiEndPoint,
+                data: {
+                    id : commentId,
+                    postId: postId
+                }
+            })
+    }
+
     async function unsubscribeTopicsFromUser(isTest: boolean, userDocRef:any, userInfoData:any, topicslist: string[]) {
         const respons : AxiosResponse =  await callLokalApiToUnsubscribe(true, userInfoData, topicslist);
         if(respons.status === 200)  {
@@ -639,6 +662,63 @@ async function handleUserBlockingTest(dataSnapshot:any) {
         return null;
     }
 }
+
+export const markUserspam = functions.firestore.document('posts/{postId}/comments/{commentId}')
+    .onUpdate((change, context) => {
+
+    console.log("markUserspam is called")
+      const maxAllowedreportsForSpam = 3;
+      // Retrieve the current and previous value
+      const data = change.after.data();
+      const previousData = change.before.data();
+
+      try {
+             // This is crucial to prevent infinite loops.
+            if (data.numReports === previousData.numReports) {
+                return null;
+            }
+
+            const count = data.numReports;
+            if(count > maxAllowedreportsForSpam){
+                return change.after.ref.set({userSpam: true}, {merge: true});
+            }else{
+                return null;
+            }
+        } catch(error) {
+            console.log(error);
+            return null;
+        }
+      
+    });
+
+
+export const markUserspamTest = functions.firestore.document('posts_test/{postId}/comments/{commentId}')
+    .onUpdate((change, context) => {
+      const maxAllowedreportsForSpam = 3;
+      // Retrieve the current and previous value
+      const data = change.after.data();
+      const previousData = change.before.data();
+
+      console.log("markUserspamTest is called")
+      try {
+        // This is crucial to prevent infinite loops.
+        if (data.numReports === previousData.numReports) {
+            return null;
+        }
+
+        const count = data.numReports;
+        if(count > maxAllowedreportsForSpam){
+            return change.after.ref.set({userSpam: true}, {merge: true});
+        }else{
+            return null;
+        }
+    } catch(error) {
+        console.log(error);
+        return null;
+    }
+      
+    });
+
 
     // async function handleDirectCommentReport(afterSnapshot:any, beforeSnapshot:any) {
     //     const postId = beforeSnapshot.postId;
